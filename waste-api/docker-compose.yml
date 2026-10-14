@@ -1,0 +1,44 @@
+services:
+  waste-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: waste-api:latest
+    container_name: waste-api
+    ports:
+      - "8000:8000"
+
+    # ── environment ──────────────────────────────────────────────────
+    env_file:
+      - .env          # copy .env.example → .env and fill in values
+
+    environment:
+      # Override or supplement values from .env
+      MODEL_PATH: /app/models/best.onnx
+      RULES_PATH: /app/config/rules.json
+
+    # ── volumes (read-only) ──────────────────────────────────────────
+    # Mount models and config so they can be swapped without rebuilding
+    volumes:
+      - ./models:/app/models:ro
+      - ./config:/app/config:ro
+
+    # ── resource limits ──────────────────────────────────────────────
+    # Tune these to your server's CPU and memory capacity.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"     # number of CPU cores available to the container
+          memory: "1g"    # adjust based on model size (typical YOLOv8n ≈ 50 MB)
+        reservations:
+          memory: "256m"
+
+    # ── health check (mirrors Dockerfile HEALTHCHECK) ────────────────
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+    restart: unless-stopped

@@ -1,0 +1,1 @@
+# waste-api application package

@@ -1,0 +1,143 @@
+{
+  "battery": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Hazardous / E-Waste",
+    "bin": "Battery & E-Waste Drop-off",
+    "instructions": "Do not dispose in regular waste. Take to specialized battery collection bins at retailers or recycling depots."
+  },
+  "can": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Metal",
+    "bin": "Metal & Cans Recycling Bin (Yellow/Blue)",
+    "instructions": "Empty contents, rinse lightly. Aluminum and steel cans are 100% infinitely recyclable."
+  },
+  "cardboard": {
+    "biodegradable": true,
+    "recyclable": true,
+    "category": "Cardboard",
+    "bin": "Paper & Cardboard Bin (Blue)",
+    "instructions": "Flatten corrugated boxes to save space. Keep dry and free of greasy food stains."
+  },
+  "drink carton": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Composite Carton",
+    "bin": "Carton & Mixed Recycling Bin",
+    "instructions": "Tetra Pak & aseptic cartons have plastic/aluminum liners. Rinse, push straws inside, and recycle where carton facilities exist."
+  },
+  "glass bottle": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Glass",
+    "bin": "Glass Recycling Bin (Green/Purple)",
+    "instructions": "Empty and rinse. Keep caps on or separate metal lids. Do not break."
+  },
+  "paper": {
+    "biodegradable": true,
+    "recyclable": true,
+    "category": "Paper",
+    "bin": "Paper & Cardboard Bin (Blue)",
+    "instructions": "Clean dry office paper, newspaper, and flyers. Wet or food-stained paper goes into compost or general waste."
+  },
+  "plastic bag": {
+    "biodegradable": false,
+    "recyclable": false,
+    "category": "Soft Plastic",
+    "bin": "Soft Plastics Store Drop-off / Redcycle",
+    "instructions": "DO NOT place in domestic curbside bins as bags tangle sorting machinery. Return clean bags to supermarket drop-off hubs."
+  },
+  "plastic bottle": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Rigid Plastic (PET/HDPE)",
+    "bin": "Plastics & Containers Bin (Yellow)",
+    "instructions": "Empty liquid, rinse, squash bottle flat, and screw the cap back on."
+  },
+  "plastic bottle cap": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Rigid Plastic (PP/HDPE)",
+    "bin": "Plastics Bin (Attached to bottle)",
+    "instructions": "Small loose caps can fall through sorting sieves; screw tightly onto clean empty plastic bottles."
+  },
+  "pop tab": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Metal",
+    "bin": "Metal & Cans Recycling Bin",
+    "instructions": "Leave attached to the can or drop inside an empty aluminum can to avoid losing small parts."
+  },
+  "organic": {
+    "biodegradable": true,
+    "recyclable": false,
+    "category": "Organic",
+    "bin": "Organic / Compost Bin (Green)",
+    "instructions": "Food scraps, fruit peels, and garden waste. Decomposes naturally into compost."
+  },
+  "glass": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Glass",
+    "bin": "Glass Recycling Bin",
+    "instructions": "100% recyclable bottles and jars. Empty and rinse."
+  },
+  "metal": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Metal",
+    "bin": "Metal Recycling Bin",
+    "instructions": "Aluminum and steel are infinitely recyclable."
+  },
+  "plastic": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Plastic",
+    "bin": "Plastics Bin",
+    "instructions": "Rigid plastics (types 1, 2, and 5) are widely recyclable."
+  },
+  "textile": {
+    "biodegradable": true,
+    "recyclable": false,
+    "category": "Textile",
+    "bin": "Clothing Donation / Textile Bank",
+    "instructions": "Donate usable clothes to charity. Worn-out textiles should go to textile banks."
+  },
+  "ewaste": {
+    "biodegradable": false,
+    "recyclable": false,
+    "category": "E-Waste",
+    "bin": "E-Waste Recycling Drop-off",
+    "instructions": "Electronics contain toxic substances and valuable metals. Never put in general waste."
+  },
+  "bottle": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Plastic / Glass Bottle",
+    "bin": "Plastics & Containers Bin (Yellow)",
+    "instructions": "Empty liquid, rinse, and place in plastics or glass recycling."
+  },
+  "cup": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Drink Carton / Cup",
+    "bin": "Cartons / Mixed Recycling",
+    "instructions": "Rinse clean. Take single-use coffee cups to specialized cup drop-offs."
+  },
+  "phone": {
+    "biodegradable": false,
+    "recyclable": true,
+    "category": "Hazardous / E-Waste",
+    "bin": "E-Waste / Battery Drop-off Hub",
+    "instructions": "Contains lithium battery and circuit boards. Recycle at designated e-waste drop-offs."
+  },
+  "book": {
+    "biodegradable": true,
+    "recyclable": true,
+    "category": "Paper",
+    "bin": "Paper & Cardboard Bin (Blue)",
+    "instructions": "Recycle with clean paper and cardboard."
+  }
+}
+
