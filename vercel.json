@@ -1,15 +1,15 @@
 {
-  "version": 2,
-  "functions": {
-    "api/index.py": {
-      "includeFiles": "waste-api/**",
-      "maxDuration": 60
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "waste-api": {
+      "root": "waste-api/",
+      "entrypoint": "main:app"
     }
   },
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/api/index.py"
+      "destination": { "service": "waste-api" }
     }
   ]
 }
