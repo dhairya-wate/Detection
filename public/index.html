@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ecovision — waste detection</title>
+  <meta name="description" content="Minimal text-based waste detection and classification using the TACO dataset.">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Minimal Header (Only Text) -->
+  <header class="header">
+    <div class="brand">
+      <span class="brand-title">ecovision</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-sub">waste detection</span>
+    </div>
+
+    <!-- Mode Selector Tabs (Plain Text) -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab active" id="tabCamera" role="tab" aria-selected="true">camera</button>
+      <span class="nav-sep">|</span>
+      <button class="nav-tab" id="tabUpload" role="tab" aria-selected="false">image</button>
+    </nav>
+
+    <!-- Header Actions (Plain Text) -->
+    <div class="header-actions">
+      <select id="cameraSelect" class="text-select" aria-label="Select camera">
+        <option value="">default camera</option>
+      </select>
+      <button class="text-link" id="btnOpenGuide" title="View Recycling Guide">[ guide ]</button>
+    </div>
+  </header>
+
+  <!-- Offline Warning Banner -->
+  <div class="offline-banner" id="serverOfflineBanner" style="display: none;">
+    server offline — run <code>python run.py</code> to connect
+  </div>
+
+  <!-- Main Viewport Section -->
+  <main class="main-container">
+
+    <!-- Viewport Container -->
+    <section class="viewport-box" id="cameraViewport">
+
+      <!-- Telemetry Strip (Text Only) -->
+      <div class="telemetry-bar">
+        <span class="telem-item" id="fpsDisplay">-- fps</span>
+        <span class="telem-sep">/</span>
+        <span class="telem-item" id="latencyDisplay">-- ms</span>
+        <span class="telem-sep">/</span>
+        <span class="telem-item" id="detectionsCountBadge">0 detected</span>
+        <button class="text-btn-inline" id="btnFullscreen" title="Fullscreen">[ fullscreen ]</button>
+      </div>
+
+      <!-- Live Video View -->
+      <div class="video-container" id="videoContainer">
+        <video id="cameraVideo" playsinline autoplay muted></video>
+        <canvas id="overlayCanvas"></canvas>
+
+        <!-- Standby Overlay (Text Only) -->
+        <div class="standby-overlay" id="standbyOverlay">
+          <p class="standby-title">camera standby</p>
+          <p class="standby-sub">click [ start camera ] below to start real-time detection</p>
+        </div>
+      </div>
+
+      <!-- Test Image Stage (Text Only) -->
+      <div class="upload-stage" id="uploadStage">
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" style="display: none;">
+        <img id="uploadedImagePreview" alt="Upload preview">
+        <canvas id="uploadOverlayCanvas"></canvas>
+        <div class="dropzone-prompt" id="dropzoneText">
+          <p class="drop-title">drag and drop image here</p>
+          <p class="drop-sub">or click anywhere inside this box to browse (jpeg, png, webp)</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls Bar (Minimal Text Buttons) -->
+    <section class="controls-bar">
+      <button class="btn-primary" id="btnToggleCamera">
+        <span id="btnCameraText">[ start camera ]</span>
+      </button>
+
+      <button class="btn-secondary" id="btnSnapshot">[ snapshot ]</button>
+
+      <div class="control-item">
+        <label for="confSlider">confidence:</label>
+        <input type="range" id="confSlider" min="0.10" max="0.80" step="0.05" value="0.25">
+        <span class="mono-val" id="confValueDisplay">25%</span>
+      </div>
+
+      <div class="control-item">
+        <label for="soundToggle" class="checkbox-label">
+          <input type="checkbox" id="soundToggle" checked>
+          <span>chime alert</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Live Detections Readout (Minimal Text List) -->
+    <section class="detections-panel" id="detectionDrawer" style="display: none;">
+      <div class="panel-header">
+        <span class="panel-title">detected items (<span id="drawerCount">0</span>)</span>
+      </div>
+      <div class="panel-items" id="detectionsList">
+        <!-- Text list rendered by app.js -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- TACO Recycling Rules Modal (Pure Text Minimalist Table) -->
+  <div class="modal-backdrop" id="tacoGuideModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 class="modal-title">taco dataset disposal guide</h2>
+        <button class="text-close" id="btnCloseGuide">[ close ]</button>
+      </div>
+      <div class="modal-body">
+        <table class="text-table">
+          <thead>
+            <tr>
+              <th>material</th>
+              <th>recyclable</th>
+              <th>biodegradable</th>
+              <th>bin</th>
+            </tr>
+          </thead>
+          <tbody id="rulesTableBody">
+            <!-- Rendered by app.js -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
