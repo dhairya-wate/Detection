@@ -1,5 +1,6 @@
 /**
  * ecovision — minimal text & white theme waste detection
+ * Enhanced precision with Focused Target Area scanning & false positive filtering.
  */
 
 (() => {
@@ -11,13 +12,16 @@
     stream: null,
     detectIntervalTimer: null,
     targetFps: 6,
-    confThreshold: 0.25,
+    confThreshold: 0.45, // default 45% to suppress room clutter & false positives
     soundAlertsEnabled: true,
     lastDetections: [],
+    smoothedDetections: [],
     rulesMap: {},
     lastFrameTimestamp: performance.now(),
     fpsHistory: [],
     audioCtx: null,
+    targetAreaMode: 'standard', // 'compact' | 'standard' | 'wide' | 'fullscreen'
+    targetAreaEnabled: true,
   };
 
   // ── DOM Elements ───────────────────────────────────────────────────────────
@@ -29,6 +33,8 @@
   const btnToggleCamera = document.getElementById('btnToggleCamera');
   const btnCameraText = document.getElementById('btnCameraText');
   const cameraSelect = document.getElementById('cameraSelect');
+  const targetAreaSelect = document.getElementById('targetAreaSelect');
+  const areaBadge = document.getElementById('areaBadge');
   const confSlider = document.getElementById('confSlider');
   const confValueDisplay = document.getElementById('confValueDisplay');
   const soundToggle = document.getElementById('soundToggle');
@@ -57,6 +63,88 @@
   // Off-screen canvas for capturing video frames
   const captureCanvas = document.createElement('canvas');
   const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+
+  // ── Target Area (Specific Area ROI) Calculation ────────────────────────────
+  function getTargetAreaRect(width, height, mode = state.targetAreaMode) {
+    if (mode === 'fullscreen' || !state.targetAreaEnabled) {
+      return { x: 0, y: 0, w: width, h: height, isFull: true };
+    }
+
+    let wRatio = 0.58;
+    let hRatio = 0.65;
+    if (mode === 'compact') {
+      wRatio = 0.40;
+      hRatio = 0.45;
+    } else if (mode === 'wide') {
+      wRatio = 0.75;
+      hRatio = 0.78;
+    }
+
+    const w = Math.round(width * wRatio);
+    const h = Math.round(height * hRatio);
+    const x = Math.round((width - w) / 2);
+    const y = Math.round((height - h) / 2);
+
+    return { x, y, w, h, isFull: false };
+  }
+
+  // ── Temporal Bounding Box Smoothing ────────────────────────────────────────
+  function calcBboxIoU(b1, b2) {
+    const interX1 = Math.max(b1.x1, b2.x1);
+    const interY1 = Math.max(b1.y1, b2.y1);
+    const interX2 = Math.min(b1.x2, b2.x2);
+    const interY2 = Math.min(b1.y2, b2.y2);
+    const interW = Math.max(0, interX2 - interX1);
+    const interH = Math.max(0, interY2 - interY1);
+    const interArea = interW * interH;
+    if (interArea <= 0) return 0;
+    const a1 = (b1.x2 - b1.x1) * (b1.y2 - b1.y1);
+    const a2 = (b2.x2 - b2.x1) * (b2.y2 - b2.y1);
+    const unionArea = a1 + a2 - interArea;
+    return unionArea > 0 ? interArea / unionArea : 0;
+  }
+
+  function smoothDetections(newDetections) {
+    if (!state.smoothedDetections || state.smoothedDetections.length === 0) {
+      state.smoothedDetections = newDetections.map(d => ({ ...d }));
+      return newDetections;
+    }
+
+    const smoothed = [];
+    for (const newDet of newDetections) {
+      let bestMatch = null;
+      let bestIoU = 0.25;
+
+      for (const prevDet of state.smoothedDetections) {
+        if (prevDet.material === newDet.material) {
+          const iou = calcBboxIoU(prevDet.bbox, newDet.bbox);
+          if (iou > bestIoU) {
+            bestIoU = iou;
+            bestMatch = prevDet;
+          }
+        }
+      }
+
+      if (bestMatch) {
+        // Blend box smoothly: 70% current, 30% previous
+        const alpha = 0.7;
+        smoothed.push({
+          ...newDet,
+          bbox: {
+            x1: Math.round(bestMatch.bbox.x1 * (1 - alpha) + newDet.bbox.x1 * alpha),
+            y1: Math.round(bestMatch.bbox.y1 * (1 - alpha) + newDet.bbox.y1 * alpha),
+            x2: Math.round(bestMatch.bbox.x2 * (1 - alpha) + newDet.bbox.x2 * alpha),
+            y2: Math.round(bestMatch.bbox.y2 * (1 - alpha) + newDet.bbox.y2 * alpha),
+          },
+        });
+      } else {
+        smoothed.push(newDet);
+      }
+    }
+
+    state.smoothedDetections = smoothed;
+    return smoothed;
+  }
 
   // ── Audio Feedback Synthesizer ─────────────────────────────────────────────
   function playDetectionBeep() {
@@ -203,6 +291,8 @@
       state.stream = null;
     }
     video.srcObject = null;
+    state.lastDetections = [];
+    state.smoothedDetections = [];
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (standbyOverlay) standbyOverlay.classList.remove('hidden');
     if (btnCameraText) btnCameraText.innerText = '[ start camera ]';
@@ -228,19 +318,32 @@
     const vh = video.videoHeight;
     if (!vw || !vh || video.readyState < 2) return;
 
-    if (captureCanvas.width !== vw || captureCanvas.height !== vh) {
-      captureCanvas.width = vw;
-      captureCanvas.height = vh;
-    }
     if (canvas.width !== vw || canvas.height !== vh) {
       canvas.width = vw;
       canvas.height = vh;
     }
 
+    const roi = getTargetAreaRect(vw, vh, state.targetAreaMode);
+
+    // If target area mode is active and not fullscreen, crop to ROI to isolate item
+    let cropX = 0, cropY = 0, cropW = vw, cropH = vh;
+    if (!roi.isFull) {
+      cropX = roi.x;
+      cropY = roi.y;
+      cropW = roi.w;
+      cropH = roi.h;
+    }
+
+    if (captureCanvas.width !== cropW || captureCanvas.height !== cropH) {
+      captureCanvas.width = cropW;
+      captureCanvas.height = cropH;
+    }
+
     state.isProcessing = true;
     const t0 = performance.now();
 
-    captureCtx.drawImage(video, 0, 0, vw, vh);
+    // Draw only the focused target area to off-screen capture canvas
+    captureCtx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
     const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.85);
 
     try {
@@ -251,6 +354,7 @@
           image: dataUrl,
           conf_thres: state.confThreshold,
           iou_thres: 0.45,
+          max_area_ratio: roi.isFull ? 0.50 : 0.85,
         }),
       });
 
@@ -262,13 +366,43 @@
         if (latencyDisplay) latencyDisplay.innerText = `${data.inference_ms || latency} ms`;
         updateFpsCounter();
 
-        if (data.count > 0 && state.lastDetections.length === 0) {
+        // Map detections from cropped space back into full camera space
+        const adjustedDetections = (data.detections || []).map(det => {
+          const adjBbox = {
+            x1: det.bbox.x1 + cropX,
+            y1: det.bbox.y1 + cropY,
+            x2: det.bbox.x2 + cropX,
+            y2: det.bbox.y2 + cropY,
+          };
+          let adjPoly = null;
+          if (det.polygon && Array.isArray(det.polygon)) {
+            adjPoly = det.polygon.map(pt => [pt[0] + cropX, pt[1] + cropY]);
+          }
+          return {
+            ...det,
+            bbox: adjBbox,
+            polygon: adjPoly,
+          };
+        }).filter(det => {
+          // Strict area filter: ensure detection is strictly inside target area
+          if (!roi.isFull) {
+            const cx = (det.bbox.x1 + det.bbox.x2) / 2;
+            const cy = (det.bbox.y1 + det.bbox.y2) / 2;
+            return cx >= roi.x && cx <= (roi.x + roi.w) && cy >= roi.y && cy <= (roi.y + roi.h);
+          }
+          return true;
+        });
+
+        // Apply temporal smoothing to eliminate erratic jumps and single-frame noise
+        const smoothed = smoothDetections(adjustedDetections);
+
+        if (smoothed.length > 0 && state.lastDetections.length === 0) {
           playDetectionBeep();
         }
 
-        state.lastDetections = data.detections || [];
-        renderSegmentation(ctx, canvas, data.detections || []);
-        updateDetectionsList(data.detections || []);
+        state.lastDetections = smoothed;
+        renderSegmentation(ctx, canvas, smoothed, roi);
+        updateDetectionsList(smoothed);
       } else {
         if (serverOfflineBanner) serverOfflineBanner.style.display = 'block';
       }
@@ -293,11 +427,99 @@
     }
   }
 
-  // ── Overlay Renderer (Minimal Black & White Bounding Box & Contour) ────────
-  function renderSegmentation(targetCtx, targetCanvas, detections) {
+  // ── Overlay Renderer (Focused Target Area + High-Precision BBoxes) ─────────
+  function renderSegmentation(targetCtx, targetCanvas, detections, roi = null) {
     targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+    const s = Math.max(1, targetCanvas.width / 720); // resolution scaling factor
+
+    // 1. Draw Target Area Viewfinder (Specific Area Scan Zone)
+    if (roi && !roi.isFull) {
+      const hasDetections = detections && detections.length > 0;
+
+      // Noticeable outer dimming to highlight the specific scanning area
+      targetCtx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+      targetCtx.fillRect(0, 0, targetCanvas.width, roi.y);
+      targetCtx.fillRect(0, roi.y + roi.h, targetCanvas.width, targetCanvas.height - (roi.y + roi.h));
+      targetCtx.fillRect(0, roi.y, roi.x, roi.h);
+      targetCtx.fillRect(roi.x + roi.w, roi.y, targetCanvas.width - (roi.x + roi.w), roi.h);
+
+      // Target Area Outline
+      targetCtx.lineWidth = Math.round(1.5 * s);
+      targetCtx.strokeStyle = hasDetections ? '#16a34a' : 'rgba(0, 0, 0, 0.5)';
+      targetCtx.strokeRect(roi.x, roi.y, roi.w, roi.h);
+
+      // Target Area Heavy Corner Reticles
+      const bracketLen = Math.round(Math.min(36 * s, roi.w / 6));
+      targetCtx.lineWidth = Math.round(3.5 * s);
+      targetCtx.strokeStyle = hasDetections ? '#16a34a' : '#111111';
+
+      // Top-Left
+      targetCtx.beginPath();
+      targetCtx.moveTo(roi.x, roi.y + bracketLen);
+      targetCtx.lineTo(roi.x, roi.y);
+      targetCtx.lineTo(roi.x + bracketLen, roi.y);
+      targetCtx.stroke();
+
+      // Top-Right
+      targetCtx.beginPath();
+      targetCtx.moveTo(roi.x + roi.w - bracketLen, roi.y);
+      targetCtx.lineTo(roi.x + roi.w, roi.y);
+      targetCtx.lineTo(roi.x + roi.w, roi.y + bracketLen);
+      targetCtx.stroke();
+
+      // Bottom-Left
+      targetCtx.beginPath();
+      targetCtx.moveTo(roi.x, roi.y + roi.h - bracketLen);
+      targetCtx.lineTo(roi.x, roi.y + roi.h);
+      targetCtx.lineTo(roi.x + bracketLen, roi.y + roi.h);
+      targetCtx.stroke();
+
+      // Bottom-Right
+      targetCtx.beginPath();
+      targetCtx.moveTo(roi.x + roi.w - bracketLen, roi.y + roi.h);
+      targetCtx.lineTo(roi.x + roi.w, roi.y + roi.h);
+      targetCtx.lineTo(roi.x + roi.w, roi.y + roi.h - bracketLen);
+      targetCtx.stroke();
+
+      // Target Area Status Header Tag
+      const fontSize = Math.round(12 * s);
+      targetCtx.font = `600 ${fontSize}px "JetBrains Mono", monospace`;
+      const targetLabel = hasDetections
+        ? `[ TARGET ACQUIRED · ${detections.length} ITEM DETECTED ]`
+        : '[ SCAN ZONE · PLACE OBJECT INSIDE THIS BOX ]';
+      const tW = targetCtx.measureText(targetLabel).width + Math.round(20 * s);
+      const tH = Math.round(24 * s);
+      const tX = roi.x + (roi.w - tW) / 2;
+      const tY = (roi.y - tH - 6 > 6) ? roi.y - tH - 6 : roi.y + 6;
+
+      targetCtx.fillStyle = hasDetections ? '#16a34a' : '#111111';
+      targetCtx.fillRect(tX, tY, tW, tH);
+      targetCtx.lineWidth = Math.round(1.5 * s);
+      targetCtx.strokeStyle = '#ffffff';
+      targetCtx.strokeRect(tX, tY, tW, tH);
+
+      targetCtx.fillStyle = '#ffffff';
+      targetCtx.fillText(targetLabel, tX + Math.round(10 * s), tY + Math.round(16 * s));
+
+      // Center crosshair alignment guide when no object is detected yet
+      if (!hasDetections) {
+        const midX = roi.x + roi.w / 2;
+        const midY = roi.y + roi.h / 2;
+        const arm = Math.round(14 * s);
+        targetCtx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        targetCtx.lineWidth = Math.round(1.5 * s);
+        targetCtx.beginPath();
+        targetCtx.moveTo(midX - arm, midY);
+        targetCtx.lineTo(midX + arm, midY);
+        targetCtx.moveTo(midX, midY - arm);
+        targetCtx.lineTo(midX, midY + arm);
+        targetCtx.stroke();
+      }
+    }
+
     if (!detections || detections.length === 0) return;
 
+    // 2. Render Detections Inside the Target Zone
     detections.forEach(det => {
       const { bbox, material, confidence, biodegradable, recyclable, polygon } = det;
       const x = bbox.x1;
@@ -305,7 +527,7 @@
       const w = bbox.x2 - bbox.x1;
       const h = bbox.y2 - bbox.y1;
 
-      // 1. Segmentation Mask (Subtle outline & translucent shade)
+      // Segmentation Contour Mask
       if (polygon && Array.isArray(polygon) && polygon.length >= 3) {
         targetCtx.beginPath();
         targetCtx.moveTo(polygon[0][0], polygon[0][1]);
@@ -322,12 +544,12 @@
         targetCtx.stroke();
       }
 
-      // 2. High-Contrast Bounding Box
+      // High-Contrast Bounding Box
       targetCtx.lineWidth = 1.5;
       targetCtx.strokeStyle = '#111111';
       targetCtx.strokeRect(x, y, w, h);
 
-      // Corner Accents (Target Brackets)
+      // Item Corner Target Brackets
       const cornerLen = Math.min(14, Math.max(5, Math.floor(w / 5)), Math.max(5, Math.floor(h / 5)));
       if (w > 12 && h > 12) {
         targetCtx.lineWidth = 2.5;
@@ -362,7 +584,7 @@
         targetCtx.stroke();
       }
 
-      // 3. Crisp Text Label Tag
+      // Crisp Material Label Tag
       const labelText = `${material.toLowerCase()} · ${Math.round(confidence * 100)}%`;
       targetCtx.font = '500 12px "JetBrains Mono", monospace';
       const textWidth = targetCtx.measureText(labelText).width;
@@ -370,18 +592,16 @@
       const pillHeight = 20;
       const pillY = Math.max(y - pillHeight - 2, 2);
 
-      // Solid white background with black border
       targetCtx.fillStyle = '#ffffff';
       targetCtx.fillRect(x, pillY, pillWidth, pillHeight);
       targetCtx.lineWidth = 1;
       targetCtx.strokeStyle = '#111111';
       targetCtx.strokeRect(x, pillY, pillWidth, pillHeight);
 
-      // Label text
       targetCtx.fillStyle = '#111111';
       targetCtx.fillText(labelText, x + 7, pillY + 14);
 
-      // 4. Compact Status Line inside box
+      // Compact Eco Status Badge inside box
       if (h > 40) {
         const statusText = `${recyclable ? 'rec' : 'landfill'} | ${biodegradable ? 'bio' : 'non-bio'}`;
         targetCtx.font = '400 10px "JetBrains Mono", monospace';
@@ -543,7 +763,7 @@
           if (res.ok) {
             const data = await res.json();
             if (latencyDisplay) latencyDisplay.innerText = `${data.inference_ms} ms`;
-            renderSegmentation(uploadCtx, uploadCanvas, data.detections || []);
+            renderSegmentation(uploadCtx, uploadCanvas, data.detections || [], null);
             updateDetectionsList(data.detections || []);
           }
         } catch (err) {
@@ -570,6 +790,21 @@
       state.selectedDeviceId = e.target.value;
       if (state.isStreaming) {
         startCamera();
+      }
+    });
+  }
+
+  if (targetAreaSelect) {
+    targetAreaSelect.addEventListener('change', (e) => {
+      state.targetAreaMode = e.target.value;
+      if (areaBadge) {
+        areaBadge.innerText = state.targetAreaMode === 'fullscreen'
+          ? 'target area: full'
+          : `target area: ${state.targetAreaMode}`;
+      }
+      if (state.isStreaming && video.videoWidth > 0) {
+        const roi = getTargetAreaRect(video.videoWidth, video.videoHeight, state.targetAreaMode);
+        renderSegmentation(ctx, canvas, state.lastDetections, roi);
       }
     });
   }

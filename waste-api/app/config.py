@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     RULES_PATH: str = "config/rules.json"
 
     # ── inference thresholds ───────────────────────────────────────────────
-    CONF_THRES: float = 0.25
+    CONF_THRES: float = 0.45
     IOU_THRES: float = 0.45
 
     # ── upload limits ──────────────────────────────────────────────────────

@@ -233,6 +233,32 @@ class TestPostprocess:
         assert bbox["x2"] == pytest.approx(640.0, abs=1.0)
         assert bbox["y2"] == pytest.approx(640.0, abs=1.0)
 
+    def test_oversized_moderate_confidence_box_rejected(self) -> None:
+        """A huge box (>55% of image) with moderate confidence (<0.85) is suppressed as room/background noise."""
+        # logit=0.2 -> sigmoid ~ 0.55 (above conf_thres=0.4, but < 0.85 and area=100%)
+        raw = _make_raw_output(cx=320, cy=320, w=600, h=600, cls_idx=1, logit=0.2)
+        meta = self._meta()
+        results = postprocess(raw, meta, conf_thres=0.4, iou_thres=0.5, class_names=CLASSES, max_area_ratio=0.55)
+        assert results == []
+
+    def test_roi_filters_outside_detection(self) -> None:
+        """A box centered outside the designated target ROI is suppressed."""
+        # Box centered at (100, 100)
+        raw = _make_raw_output(cx=100, cy=100, w=50, h=50, cls_idx=0, logit=6.0)
+        meta = self._meta()
+        # ROI is in the center [200, 200, 440, 440]
+        results = postprocess(raw, meta, conf_thres=0.4, iou_thres=0.5, class_names=CLASSES, roi=[200.0, 200.0, 440.0, 440.0])
+        assert results == []
+
+    def test_roi_keeps_inside_detection(self) -> None:
+        """A box centered inside the designated target ROI is preserved."""
+        # Box centered at (320, 320)
+        raw = _make_raw_output(cx=320, cy=320, w=60, h=60, cls_idx=0, logit=6.0)
+        meta = self._meta()
+        results = postprocess(raw, meta, conf_thres=0.4, iou_thres=0.5, class_names=CLASSES, roi=[200.0, 200.0, 440.0, 440.0])
+        assert len(results) == 1
+        assert results[0].material == "paper"
+
 
 # ── WasteDetector (mocked session) ───────────────────────────────────────────
 

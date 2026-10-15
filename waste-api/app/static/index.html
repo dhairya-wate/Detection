@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=2.1">
 </head>
 <body>
 
@@ -56,6 +56,8 @@
         <span class="telem-item" id="latencyDisplay">-- ms</span>
         <span class="telem-sep">/</span>
         <span class="telem-item" id="detectionsCountBadge">0 detected</span>
+        <span class="telem-sep">/</span>
+        <span class="telem-item" id="areaBadge">target area: active</span>
         <button class="text-btn-inline" id="btnFullscreen" title="Fullscreen">[ fullscreen ]</button>
       </div>
 
@@ -92,9 +94,19 @@
       <button class="btn-secondary" id="btnSnapshot">[ snapshot ]</button>
 
       <div class="control-item">
+        <label for="targetAreaSelect">detection area:</label>
+        <select id="targetAreaSelect" class="text-select" title="Restricts detection to a specific area to eliminate background clutter">
+          <option value="standard" selected>[ center box · 60% ]</option>
+          <option value="compact">[ compact box · 40% ]</option>
+          <option value="wide">[ wide box · 75% ]</option>
+          <option value="fullscreen">[ full screen ]</option>
+        </select>
+      </div>
+
+      <div class="control-item">
         <label for="confSlider">confidence:</label>
-        <input type="range" id="confSlider" min="0.10" max="0.80" step="0.05" value="0.25">
-        <span class="mono-val" id="confValueDisplay">25%</span>
+        <input type="range" id="confSlider" min="0.20" max="0.85" step="0.05" value="0.45">
+        <span class="mono-val" id="confValueDisplay">45%</span>
       </div>
 
       <div class="control-item">
@@ -142,6 +154,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2.1"></script>
 </body>
 </html>

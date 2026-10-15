@@ -258,6 +258,51 @@ def nms(
     return kept
 
 
+def suppress_cross_class_overlaps(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    kept_indices: list[int],
+    cross_iou_thres: float = 0.50,
+) -> list[int]:
+    """
+    Among remaining candidate detections from different classes that heavily
+    overlap (e.g. pop tab vs plastic bottle cap in the same position), keep
+    only the detection with the higher confidence score.
+    """
+    if len(kept_indices) <= 1:
+        return kept_indices
+
+    sorted_kept = sorted(kept_indices, key=lambda idx: float(scores[idx]), reverse=True)
+    final_kept: list[int] = []
+    suppressed = set()
+
+    for i, idx1 in enumerate(sorted_kept):
+        if idx1 in suppressed:
+            continue
+        final_kept.append(idx1)
+        b1 = boxes[idx1]
+        for idx2 in sorted_kept[i + 1 :]:
+            if idx2 in suppressed:
+                continue
+            b2 = boxes[idx2]
+            inter_x1 = max(b1[0], b2[0])
+            inter_y1 = max(b1[1], b2[1])
+            inter_x2 = min(b1[2], b2[2])
+            inter_y2 = min(b1[3], b2[3])
+            inter_w = max(0.0, inter_x2 - inter_x1)
+            inter_h = max(0.0, inter_y2 - inter_y1)
+            inter_area = inter_w * inter_h
+            if inter_area <= 0:
+                continue
+            area1 = (b1[2] - b1[0]) * (b1[3] - b1[1])
+            area2 = (b2[2] - b2[0]) * (b2[3] - b2[1])
+            union_area = area1 + area2 - inter_area
+            if union_area > 0 and (inter_area / union_area) > cross_iou_thres:
+                suppressed.add(idx2)
+
+    return final_kept
+
+
 def preprocess(img_array: np.ndarray, input_size: int = 640) -> tuple[np.ndarray, _LetterboxMeta]:
     """
     Convert a uint8 HxWxC array to a float32 NCHW tensor ready for ONNX.
@@ -277,6 +322,10 @@ def postprocess(
     iou_thres: float,
     class_names: list[str],
     img_array: np.ndarray | None = None,
+    max_area_ratio: float = 0.55,
+    min_area_ratio: float = 0.002,
+    cross_class_iou: float | None = 0.50,
+    roi: list[float] | None = None,
 ) -> list[DetectionResult]:
     """
     Convert raw YOLOv8 ONNX output to a list of DetectionResult objects.
@@ -288,6 +337,10 @@ def postprocess(
     conf_thres : minimum confidence threshold
     iou_thres  : IoU threshold for NMS
     class_names: ordered list of class name strings
+    max_area_ratio : maximum box area as a fraction of image (rejects huge background false positives)
+    min_area_ratio : minimum box area as a fraction of image (rejects tiny noise specks)
+    cross_class_iou: IoU threshold to suppress duplicate overlapping boxes from different classes
+    roi        : optional [x1, y1, x2, y2] bounding box to restrict valid detection centers
 
     Returns
     -------
@@ -339,9 +392,45 @@ def postprocess(
     # Per-class NMS
     kept = nms(boxes_orig, confidences, class_ids, iou_thres)
 
+    # Cross-class NMS (prevents conflicting duplicate classes on the exact same item)
+    if cross_class_iou is not None and len(kept) > 1:
+        kept = suppress_cross_class_overlaps(boxes_orig, confidences, kept, cross_class_iou)
+
+    total_img_area = float(meta.orig_w * meta.orig_h)
     results: list[DetectionResult] = []
+
     for idx in kept:
         bx1, by1, bx2, by2 = boxes_orig[idx]
+        bw = bx2 - bx1
+        bh = by2 - by1
+        b_area = bw * bh
+        conf = float(confidences[idx])
+
+        # Reject degenerate or invalid dimensions
+        if bw < 2 or bh < 2:
+            continue
+
+        # Reject extreme aspect ratios (e.g. wall seams, horizontal lines)
+        aspect = max(bw / bh, bh / bw)
+        if aspect > 7.5:
+            continue
+
+        # Reject tiny sub-pixel noise specks
+        if total_img_area > 0 and (b_area / total_img_area) < min_area_ratio:
+            continue
+
+        # Reject absurdly large bounding boxes (e.g. background room/person false positives)
+        # unless model is exceptionally confident (> 0.85)
+        if total_img_area > 0 and (b_area / total_img_area) > max_area_ratio and conf < 0.85:
+            continue
+
+        # Reject detections whose center lies outside designated ROI
+        if roi is not None and len(roi) == 4:
+            cx = (bx1 + bx2) / 2.0
+            cy = (by1 + by2) / 2.0
+            if not (roi[0] <= cx <= roi[2] and roi[1] <= cy <= roi[3]):
+                continue
+
         bbox_dict = {
             "x1": float(bx1),
             "y1": float(by1),
@@ -353,7 +442,7 @@ def postprocess(
             DetectionResult(
                 bbox=bbox_dict,
                 material=class_names[int(class_ids[idx])],
-                confidence=float(confidences[idx]),
+                confidence=conf,
                 polygon=poly,
             )
         )
@@ -440,6 +529,10 @@ class WasteDetector:
         image: Image.Image,
         conf_thres: float | None = None,
         iou_thres: float | None = None,
+        max_area_ratio: float | None = None,
+        min_area_ratio: float | None = None,
+        cross_class_iou: float | None = None,
+        roi: list[float] | None = None,
     ) -> tuple[list[DetectionResult], float]:
         """
         Run inference on a PIL Image.
@@ -449,6 +542,10 @@ class WasteDetector:
         image       : PIL Image
         conf_thres  : optional override for confidence threshold
         iou_thres   : optional override for IoU threshold
+        max_area_ratio : optional override for max box area ratio
+        min_area_ratio : optional override for min box area ratio
+        cross_class_iou: optional override for cross-class suppression threshold
+        roi         : optional [x1, y1, x2, y2] to restrict detections to a specific area
 
         Returns
         -------
@@ -458,6 +555,9 @@ class WasteDetector:
         """
         active_conf = conf_thres if conf_thres is not None else self._conf_thres
         active_iou = iou_thres if iou_thres is not None else self._iou_thres
+        active_max_area = max_area_ratio if max_area_ratio is not None else 0.55
+        active_min_area = min_area_ratio if min_area_ratio is not None else 0.002
+        active_cross_iou = cross_class_iou if cross_class_iou is not None else 0.50
 
         img_array = np.array(image.convert("RGB"))
         tensor, meta = preprocess(img_array, input_size=self._input_size)
@@ -474,7 +574,12 @@ class WasteDetector:
             active_iou,
             self._class_names,
             img_array=img_array,
+            max_area_ratio=active_max_area,
+            min_area_ratio=active_min_area,
+            cross_class_iou=active_cross_iou,
+            roi=roi,
         )
 
         logger.debug("Detected %d objects in %.1f ms", len(detections), inference_ms)
         return detections, inference_ms
+

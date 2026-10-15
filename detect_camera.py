@@ -74,12 +74,56 @@ def draw_hud(
     conf_thres: float,
     paused: bool,
     show_hud: bool = True,
+    target_area_rect: tuple[int, int, int, int] | None = None,
 ) -> np.ndarray:
-    """Render bounding boxes, tags, and telemetry overlay on the frame."""
+    """Render bounding boxes, tags, target scan zone, and telemetry overlay on the frame."""
     h, w = frame.shape[:2]
     annotated = frame.copy()
 
-    # Draw Detections
+    # 1. Target Scan Zone (Specific Area Viewfinder)
+    if target_area_rect is not None:
+        rx1, ry1, rx2, ry2 = target_area_rect
+        has_items = len(detections) > 0
+
+        # Dim areas outside target zone
+        dim_mask = annotated.copy()
+        cv2.rectangle(dim_mask, (0, 0), (w, ry1), (0, 0, 0), -1)
+        cv2.rectangle(dim_mask, (0, ry2), (w, h), (0, 0, 0), -1)
+        cv2.rectangle(dim_mask, (0, ry1), (rx1, ry2), (0, 0, 0), -1)
+        cv2.rectangle(dim_mask, (rx2, ry1), (w, ry2), (0, 0, 0), -1)
+        cv2.addWeighted(dim_mask, 0.28, annotated, 0.72, 0, annotated)
+
+        # Target Area Border & Heavy Reticles
+        border_col = (16, 185, 129) if has_items else (120, 130, 140)
+        cv2.rectangle(annotated, (rx1, ry1), (rx2, ry2), border_col, 1, cv2.LINE_AA)
+
+        b_len = min(28, (rx2 - rx1) // 6)
+        cv2.line(annotated, (rx1, ry1), (rx1 + b_len, ry1), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx1, ry1), (rx1, ry1 + b_len), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx2, ry1), (rx2 - b_len, ry1), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx2, ry1), (rx2, ry1 + b_len), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx1, ry2), (rx1 + b_len, ry2), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx1, ry2), (rx1, ry2 - b_len), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx2, ry2), (rx2 - b_len, ry2), border_col, 3, cv2.LINE_AA)
+        cv2.line(annotated, (rx2, ry2), (rx2, ry2 - b_len), border_col, 3, cv2.LINE_AA)
+
+        # Target Tag
+        tag_text = "[ TARGET ZONE: ITEM IN FOCUS ]" if has_items else "[ TARGET SCAN ZONE: ALIGN ITEM HERE ]"
+        (tw, th), _ = cv2.getTextSize(tag_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+        tx = rx1 + (rx2 - rx1 - tw) // 2
+        ty = max(ry1 - 8, 20)
+        cv2.rectangle(annotated, (tx - 6, ty - th - 4), (tx + tw + 6, ty + 4), (20, 24, 34), -1)
+        cv2.rectangle(annotated, (tx - 6, ty - th - 4), (tx + tw + 6, ty + 4), border_col, 1)
+        cv2.putText(annotated, tag_text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Subtle center crosshair guide when no object is detected
+        if not has_items:
+            mid_x = (rx1 + rx2) // 2
+            mid_y = (ry1 + ry2) // 2
+            cv2.line(annotated, (mid_x - 12, mid_y), (mid_x + 12, mid_y), (100, 110, 120), 1, cv2.LINE_AA)
+            cv2.line(annotated, (mid_x, mid_y - 12), (mid_x, mid_y + 12), (100, 110, 120), 1, cv2.LINE_AA)
+
+    # 2. Draw Detections
     primary_item = None
     max_conf = -1.0
 
@@ -100,7 +144,7 @@ def draw_hud(
         rec = rule.get("recyclable", False)
         color = COLORS_BGR.get(mat.lower(), DEFAULT_COLOR_BGR)
 
-        # 1. Instance Segmentation Mask (if available)
+        # Segmentation Mask (if available)
         if hasattr(det, "polygon") and det.polygon and len(det.polygon) >= 3:
             pts = np.array(det.polygon, np.int32).reshape((-1, 1, 2))
             mask_layer = annotated.copy()
@@ -108,7 +152,7 @@ def draw_hud(
             cv2.addWeighted(mask_layer, 0.25, annotated, 0.75, 0, annotated)
             cv2.polylines(annotated, [pts], isClosed=True, color=color, thickness=1, lineType=cv2.LINE_AA)
 
-        # 2. Bounding Box over detected object
+        # Bounding Box over detected object
         cv2.rectangle(annotated, (bx1, by1), (bx2, by2), color, 2, cv2.LINE_AA)
 
         # Corner brackets for clear target visualization
@@ -126,7 +170,7 @@ def draw_hud(
         cv2.line(annotated, (bx2, by2), (bx2 - corner_len, by2), color, 3, cv2.LINE_AA)
         cv2.line(annotated, (bx2, by2), (bx2, by2 - corner_len), color, 3, cv2.LINE_AA)
 
-        # 2. Header Label Pill
+        # Header Label Pill
         label = f"{mat.upper()} {int(conf * 100)}%"
         (lbl_w, lbl_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
         pill_y1 = max(by1 - lbl_h - 10, 0)
@@ -145,11 +189,11 @@ def draw_hud(
             cv2.LINE_AA,
         )
 
-        # 3. Badges tag (BIO / RECYCLE)
+        # Badges tag (BIO / RECYCLE)
         tag_str = f"{'BIO' if bio else 'NON-BIO'} | {'RECYCLE' if rec else 'LANDFILL'}"
         (tw, th), _ = cv2.getTextSize(tag_str, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
         tag_y1 = min(by2 + 4, h - th - 6)
-        if by2 - by1 > 60:
+        if by2 - by1 > 50:
             cv2.rectangle(annotated, (bx1, tag_y1 - 2), (bx1 + tw + 8, tag_y1 + th + 4), (20, 24, 34), -1)
             cv2.rectangle(annotated, (bx1, tag_y1 - 2), (bx1 + tw + 8, tag_y1 + th + 4), color, 1)
             cv2.putText(
@@ -172,11 +216,12 @@ def draw_hud(
     cv2.addWeighted(overlay, 0.82, annotated, 0.18, 0, annotated)
 
     # Telemetry text
-    status_text = f"FPS: {fps:4.1f} | Latency: {inference_ms:4.1f}ms | Conf: {int(conf_thres*100)}% | Items: {len(detections)}"
+    mode_str = "TARGET AREA" if target_area_rect is not None else "FULL SCREEN"
+    status_text = f"FPS: {fps:4.1f} | Latency: {inference_ms:4.1f}ms | Conf: {int(conf_thres*100)}% | Mode: {mode_str} | Items: {len(detections)}"
     if paused:
         status_text += " [PAUSED]"
     cv2.putText(annotated, "TACO AI WASTE DETECTOR", (14, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (16, 185, 129), 2, cv2.LINE_AA)
-    cv2.putText(annotated, status_text, (w - 480, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 225, 230), 1, cv2.LINE_AA)
+    cv2.putText(annotated, status_text, (max(w - 620, 240), 26), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 225, 230), 1, cv2.LINE_AA)
 
     # Bottom Recycling Guidance Banner (if waste is detected)
     if primary_item:
@@ -194,7 +239,8 @@ def draw_hud(
         cv2.putText(annotated, guide_line2[:95], (16, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (160, 175, 190), 1, cv2.LINE_AA)
     else:
         # Subtle hint
-        cv2.putText(annotated, "Point camera at waste item | Press 's' to save snapshot | 'q' to quit", (16, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (100, 116, 139), 1, cv2.LINE_AA)
+        hint = "Align waste inside target box | Press 't' to toggle area | 's' save snapshot | 'q' quit"
+        cv2.putText(annotated, hint, (16, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (120, 135, 150), 1, cv2.LINE_AA)
 
     return annotated
 
@@ -203,7 +249,7 @@ def run_camera(
     camera_id: int = 0,
     model_path: str = "waste-api/models/best.onnx",
     rules_path: str = "waste-api/config/rules.json",
-    conf_thres: float = 0.25,
+    conf_thres: float = 0.45,
     iou_thres: float = 0.45,
 ) -> None:
     """Main camera detection loop."""
@@ -214,7 +260,6 @@ def run_camera(
     # Check files
     m_path = Path(model_path)
     if not m_path.exists():
-        # Check relative to API_DIR
         candidate = API_DIR / model_path
         if candidate.exists():
             m_path = candidate
@@ -259,11 +304,13 @@ def run_camera(
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[+] Camera opened successfully: {actual_w}x{actual_h}")
     print("\nControls:")
-    print("  'q' or ESC : Exit")
-    print("  's'        : Save annotated snapshot")
+    print("  't'        : Toggle Target Area scanning (Center Box vs Full Screen)")
+    print("  '+' / '-'  : Increase / Decrease confidence threshold")
     print("  'space'    : Pause / Resume detection")
-    print("  '+' / '-'  : Change confidence threshold")
+    print("  's'        : Save annotated snapshot")
+    print("  'c'        : Switch camera device index (0, 1, ...)")
     print("  'h'        : Toggle HUD")
+    print("  'q' or ESC : Exit")
     print("-" * 65)
 
     window_name = "EcoVision TACO Waste Detector (Camera)"
@@ -275,6 +322,7 @@ def run_camera(
     t_start = time.perf_counter()
     paused = False
     show_hud = True
+    target_area_mode = True
     last_detections = []
     last_inference_ms = 0.0
 
@@ -286,22 +334,70 @@ def run_camera(
                     print("[!] Failed to grab frame from camera.")
                     break
 
+                fh, fw = frame.shape[:2]
                 frame_count += 1
                 if frame_count % 5 == 0:
                     t_now = time.perf_counter()
                     fps = 5.0 / (t_now - t_start)
                     t_start = t_now
 
-                # Run inference
-                pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                detections, last_inference_ms = detector.detect(
-                    pil_image,
-                    conf_thres=conf_thres,
-                    iou_thres=iou_thres,
-                )
-                last_detections = detections
+                # Calculate Target Area ROI (Specific 60% Area)
+                target_rect = None
+                if target_area_mode:
+                    rw = int(fw * 0.58)
+                    rh = int(fh * 0.65)
+                    rx1 = (fw - rw) // 2
+                    ry1 = (fh - rh) // 2
+                    rx2 = rx1 + rw
+                    ry2 = ry1 + rh
+                    target_rect = (rx1, ry1, rx2, ry2)
 
-            # Draw HUD
+                    # Crop target area for high resolution inference without background clutter
+                    crop = frame[ry1:ry2, rx1:rx2]
+                    pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+                    raw_dets, last_inference_ms = detector.detect(
+                        pil_crop,
+                        conf_thres=conf_thres,
+                        iou_thres=iou_thres,
+                        max_area_ratio=0.85,
+                    )
+
+                    # Adjust coordinates back to full frame space
+                    adjusted = []
+                    for d in raw_dets:
+                        d.bbox["x1"] += rx1
+                        d.bbox["y1"] += ry1
+                        d.bbox["x2"] += rx1
+                        d.bbox["y2"] += ry1
+                        if d.polygon:
+                            d.polygon = [[p[0] + rx1, p[1] + ry1] for p in d.polygon]
+                        # Only keep if center is inside target area
+                        cx = (d.bbox["x1"] + d.bbox["x2"]) / 2
+                        cy = (d.bbox["y1"] + d.bbox["y2"]) / 2
+                        if rx1 <= cx <= rx2 and ry1 <= cy <= ry2:
+                            adjusted.append(d)
+                    last_detections = adjusted
+                else:
+                    # Full screen inference with oversized false positive filter
+                    pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    detections, last_inference_ms = detector.detect(
+                        pil_image,
+                        conf_thres=conf_thres,
+                        iou_thres=iou_thres,
+                        max_area_ratio=0.50,
+                    )
+                    last_detections = detections
+
+            # Draw HUD with Target Area
+            target_rect_disp = None
+            if target_area_mode:
+                fh, fw = frame.shape[:2]
+                rw = int(fw * 0.58)
+                rh = int(fh * 0.65)
+                rx1 = (fw - rw) // 2
+                ry1 = (fh - rh) // 2
+                target_rect_disp = (rx1, ry1, rx1 + rw, ry1 + rh)
+
             display_frame = draw_hud(
                 frame,
                 last_detections,
@@ -311,6 +407,7 @@ def run_camera(
                 conf_thres=conf_thres,
                 paused=paused,
                 show_hud=show_hud,
+                target_area_rect=target_rect_disp,
             )
 
             cv2.imshow(window_name, display_frame)
@@ -322,6 +419,9 @@ def run_camera(
             elif key == ord(' '):
                 paused = not paused
                 print(f"[*] Detection {'PAUSED' if paused else 'RESUMED'}")
+            elif key in (ord('t'), ord('T')):
+                target_area_mode = not target_area_mode
+                print(f"[*] Target Area Mode: {'ACTIVE (Center Box)' if target_area_mode else 'FULL SCREEN'}")
             elif key in (ord('s'), ord('S')):
                 snap_path = BASE_DIR / f"waste_snapshot_{int(time.time())}.jpg"
                 cv2.imwrite(str(snap_path), display_frame)
@@ -352,7 +452,7 @@ if __name__ == "__main__":
     parser.add_argument("--camera", type=int, default=0, help="Webcam device ID (default: 0)")
     parser.add_argument("--model", type=str, default="waste-api/models/best.onnx", help="Path to ONNX model")
     parser.add_argument("--rules", type=str, default="waste-api/config/rules.json", help="Path to rules.json")
-    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold (default: 0.25)")
+    parser.add_argument("--conf", type=float, default=0.45, help="Confidence threshold (default: 0.45)")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold (default: 0.45)")
 
     args = parser.parse_args()

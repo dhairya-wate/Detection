@@ -42,6 +42,8 @@ class PredictBase64Request(BaseModel):
     image: str = Field(..., description="Base64-encoded image (with or without data URL prefix)")
     conf_thres: float | None = Field(default=None, ge=0.05, le=1.0, description="Optional override for confidence threshold")
     iou_thres: float | None = Field(default=None, ge=0.05, le=1.0, description="Optional override for NMS IoU threshold")
+    roi: list[float] | None = Field(default=None, description="Optional [x1, y1, x2, y2] region of interest in original image coordinates")
+    max_area_ratio: float | None = Field(default=None, ge=0.05, le=1.0, description="Optional maximum bounding box area ratio")
 
 
 class PredictResponse(BaseModel):

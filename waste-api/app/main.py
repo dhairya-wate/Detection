@@ -364,6 +364,10 @@ async def predict_frame(
         image,
         payload.conf_thres,
         payload.iou_thres,
+        payload.max_area_ratio,
+        None,
+        None,
+        payload.roi,
     )
     inference_ms = (time.perf_counter() - t0) * 1000.0
 
