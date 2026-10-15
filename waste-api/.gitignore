@@ -23,7 +23,7 @@ htmlcov/
 .tox/
 
 # Model files (large binaries – place manually)
-models/*.onnx
+
 
 # IDE
 .idea/
@@ -38,3 +38,5 @@ models/*.onnx
 
 # macOS
 .DS_Store
+
+yolov8n-seg.onnx

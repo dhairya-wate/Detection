@@ -43,7 +43,6 @@ htmlcov/
 
 # Model Weights (large binary files – place manually or download)
 *.pt
-*.onnx
 *.engine
 *.bin
 *.weights
